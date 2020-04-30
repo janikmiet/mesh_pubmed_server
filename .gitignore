@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+neuroapi.html
+data/root/neuro2.db
+data/root/neuro2.tar.gz
+data/root/bert_best_finetuned.h5
+data/root/PubMed_daily-2020_02_25.tar.gz

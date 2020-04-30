@@ -1,0 +1,9 @@
+[Unit]
+Description=PUbMed API systemd service.
+
+[Service]
+Type=simple
+ExecStart=/bin/bash /usr/bin/api_service.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,155 @@
+# ansible-playbook -i "199.999.99.99," neuroapi.yml --check # check ip
+
+---
+
+- hosts: all
+  user: ubuntu
+  become: true
+  tasks:
+    - name: Run the equivalent of "apt-get update" as a separate step
+      apt:
+        update_cache: yes
+    - name: "Edit bashrc"
+      lineinfile:
+        path: .bashrc
+        line: force_color_prompt=yes
+      lineinfile:
+        path: .bashrc
+        line: PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '
+    - name: "Create directories"
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      with_items:
+        - /home/ubuntu/Downloads
+        - /home/ubuntu/PubMed_daily
+        - /home/ubuntu/biobert_pubmed
+    - name: "Copy to root"
+      copy:
+        src: "{{ item }}"
+        dest: /home/ubuntu/
+      with_items:
+        - data/root/bert_best_finetuned.h5
+        - data/root/mesh_ids.json
+        - data/root/mesh_mapping.json
+        - data/root/neuro2.db # CHECK THIS TO TAR FILE!!
+        - data/root/old_complete_output.json_class_labels.txt
+        - data/root/PubMed_daily-2020_02_25.tar.gz #TODO Check for the latest file!!!
+        - shell/start_predicting.sh
+        - shell/backup_db-pubmed.sh
+    - name: "Latest db"
+      copy:
+        src: data/root/neuro2.tar.gz
+        dest: /home/ubuntu/
+    - name: "Extract latest neuro2.db"
+      unarchive: 
+        src: "/home/ubuntu/neuro2.tar.gz"
+        dest: "/home/ubuntu/" 
+        remote_src: yes
+    - name: "Copy biobert vocab to server"
+      copy:
+        src: "{{ item }}"
+        dest: /home/ubuntu/biobert_pubmed/
+      with_items:
+        - data/biobert_pubmed/vocab.txt
+    - name: "Extract files pubmed files"
+      unarchive:
+        src: "/home/ubuntu/PubMed_daily-2020_02_25.tar.gz"
+        dest: "/home/ubuntu/"  
+        remote_src: yes
+    - name: "Install packages"
+      apt:
+        pkg: 
+          - python3-dev 
+          - python3-pip 
+          - mariadb-server 
+          - git 
+          - sshfs 
+          - sqlite
+          - python
+    - name: "Install virtualenv for python"
+      pip:
+        name: virtualenv
+        extra_args: -U
+    - name: "Git clone mesh_prediction_api"
+      git:
+        repo: 'https://github.com/haamis/mesh_prediction_api'
+        dest: /home/ubuntu/mesh_prediction_api
+    - name: "Edit /mesh_prediction_api/daily_update.sh"
+      lineinfile:
+        path: /home/ubuntu/mesh_prediction_api/daily_update.sh
+        regexp: "/change/me"
+        line: "base_folder=/home/ubuntu/PubMed_daily/" ## check if ok!
+    - name: "mesh_prediction_api: Make daily_update.sh runable"
+      file: dest=/home/ubuntu/mesh_prediction_api/daily_update.sh mode=a+x
+    - name: "Create a new virtual environment at /home/ubuntu/mesh_prediction_api"
+      command: virtualenv --system-site-packages -p python3 /home/ubuntu/mesh_prediction_api
+    - name: "Install python packages at virtual environment"
+      pip:
+        name: 
+          - tensorflow==1.14
+          - keras
+          - keras_metrics
+          - keras_bert
+          - lxml
+          - tqdm
+          - flask
+          - gunicorn
+        virtualenv: /home/ubuntu/mesh_prediction_api
+    - name: "Copy api_service.sh to /usr/bin/api_service.sh"
+      copy:
+        src: shell/api_service.sh
+        dest: /usr/bin/api_service.sh
+        owner: ubuntu
+        group: ubuntu
+        mode: a+x
+    - name: "Copy apiservice.service to /etc/systemd/system/apiservice.service"
+      copy:
+        src: shell/apiservice.service
+        dest: /etc/systemd/system/apiservice.service
+        owner: ubuntu
+        group: ubuntu
+        mode: 644
+    - name: "Copy sh scripts and make runable"
+      copy:
+        src: "{{ item }}"
+        dest: /home/ubuntu/
+        owner: ubuntu
+        group: ubuntu
+        mode: a+x
+      with_items:
+        - shell/start_predicting.sh
+        - shell/backup_db-pubmed.sh
+    - name: "Crontab jobs"
+      cron:
+        name: Parsing
+        weekday: "5"
+        minute: "5"
+        hour: "1"
+        user: ubuntu
+        job: "cd /home/ubuntu/mesh_prediction_api ; ./daily_update.sh"
+        #cron_file: pubmed_api_parsing
+      cron:
+        name: Predicting
+        weekday: "6"
+        minute: "5"
+        hour: "1"
+        user: ubuntu
+        env: yes
+        job: "/home/ubuntu/start_predicting.sh"
+        #cron_file: pubmed_api_predicting
+      cron:
+        name: Backup files
+        weekday: "4"
+        minute: "5"
+        hour: "1"
+        user: ubuntu
+        env: yes
+        job: "/home/ubuntu/backup_db-pubmed.sh"
+    - name: "Start API service"
+      command: systemctl start apiservice
+    - name: "Enable API service on startup"
+      command: systemctl enable apiservice
+
+        
